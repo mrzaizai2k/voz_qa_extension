@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VOZ Q&A</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      background: #0f1117;
+      color: #e2e8f0;
+      width: 420px;
+      min-height: 300px;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h1 span.badge {
+      font-size: 10px;
+      background: #3b82f6;
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 99px;
+      font-weight: 600;
+    }
+
+    /* ── Sections ── */
+    .section { margin-bottom: 14px; }
+
+    label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    select, input[type="text"], input[type="password"], textarea {
+      width: 100%;
+      background: #1e2330;
+      color: #e2e8f0;
+      border: 1px solid #2d3748;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    select:focus, input:focus, textarea:focus {
+      border-color: #3b82f6;
+    }
+    select:disabled, input:disabled, textarea:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 70px;
+      line-height: 1.5;
+    }
+
+    /* ── Row ── */
+    .row { display: flex; gap: 8px; align-items: flex-end; }
+    .row > * { flex: 1; }
+    .row > button { flex: 0 0 auto; }
+
+    /* ── Buttons ── */
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 14px;
+      transition: background .15s, opacity .15s;
+    }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-primary   { background: #3b82f6; color: #fff; }
+    .btn-primary:hover:not(:disabled)   { background: #2563eb; }
+    .btn-secondary { background: #2d3748; color: #e2e8f0; }
+    .btn-secondary:hover:not(:disabled) { background: #374151; }
+    .btn-danger    { background: #ef4444; color: #fff; }
+    .btn-danger:hover:not(:disabled)    { background: #dc2626; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    /* ── Provider row ── */
+    .provider-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .provider-btn {
+      flex: 1;
+      padding: 8px;
+      border-radius: 6px;
+      border: 2px solid #2d3748;
+      background: #1e2330;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .provider-btn.active {
+      border-color: #3b82f6;
+      color: #3b82f6;
+      background: #1e2e4a;
+    }
+
+    /* ── Status bar ── */
+    #statusBar {
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    #statusBar.info    { background: #1e2e4a; color: #60a5fa; display: block; }
+    #statusBar.success { background: #14291e; color: #34d399; display: block; }
+    #statusBar.error   { background: #2d1515; color: #f87171; display: block; }
+    #statusBar.warn    { background: #2d2515; color: #fbbf24; display: block; }
+
+    /* ── Cache info ── */
+    #cacheInfo {
+      background: #14291e;
+      border: 1px solid #1a3a28;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #6ee7b7;
+      margin-bottom: 12px;
+      display: none;
+    }
+    #cacheInfo .cache-row { display: flex; justify-content: space-between; align-items: center; }
+    #cacheInfo .cache-meta { color: #94a3b8; margin-top: 2px; }
+
+    /* ── Answer box ── */
+    #answerWrap { display: none; }
+    #answerBox {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.65;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 340px;
+      overflow-y: auto;
+    }
+    #answerBox .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: #3b82f6;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink .7s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Model fetch spinner ── */
+    .model-row { display: flex; gap: 6px; align-items: center; }
+    .model-row select { flex: 1; }
+    #modelSpinner {
+      width: 16px; height: 16px;
+      border: 2px solid #2d3748;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Divider ── */
+    hr { border: none; border-top: 1px solid #1e2330; margin: 14px 0; }
+
+    /* scroll bar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<h1>🔍 VOZ Q&A <span class="badge">AI</span></h1>
+
+<!-- ── Provider toggle ── -->
+<div class="provider-row">
+  <button class="provider-btn active" data-provider="openai">OpenAI</button>
+  <button class="provider-btn"        data-provider="anthropic">Anthropic</button>
+</div>
+
+<!-- ── API Key ── -->
+<div class="section">
+  <label>API Key</label>
+  <div class="row">
+    <input type="password" id="apiKey" placeholder="sk-..." />
+    <button class="btn-secondary btn-sm" id="btnSaveKey">Save</button>
+  </div>
+</div>
+
+<!-- ── Model ── -->
+<div class="section">
+  <label>Model</label>
+  <div class="model-row">
+    <select id="modelSelect"><option value="">— enter API key first —</option></select>
+    <div id="modelSpinner"></div>
+    <button class="btn-secondary btn-sm" id="btnRefreshModels" title="Refresh model list">↺</button>
+  </div>
+</div>
+
+<hr />
+
+<!-- ── Status / cache ── -->
+<div id="statusBar"></div>
+<div id="cacheInfo">
+  <div class="cache-row">
+    <strong id="cacheTitle">—</strong>
+    <button class="btn-danger btn-sm" id="btnClearCache">Clear</button>
+  </div>
+  <div class="cache-meta" id="cacheMeta"></div>
+</div>
+
+<!-- ── Crawl ── -->
+<div class="section">
+  <button class="btn-primary" id="btnCrawl" style="width:100%">⚡ Crawl thread</button>
+</div>
+
+<!-- ── Question ── -->
+<div class="section">
+  <label>Your question</label>
+  <textarea id="question" placeholder="Hỏi gì về thread này..." disabled></textarea>
+</div>
+<div class="section">
+  <button class="btn-primary" id="btnAsk" style="width:100%" disabled>Ask AI</button>
+</div>
+
+<!-- ── Answer ── -->
+<div id="answerWrap">
+  <hr />
+  <label style="margin-bottom:8px">Answer</label>
+  <div id="answerBox"></div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
