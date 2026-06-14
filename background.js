@@ -1,4 +1,11 @@
 // background.js — service worker (NO DOMParser, NO innerText — not available here)
+import {
+  SYSTEM_PROMPT,
+  buildContext,
+  buildUserPrompt,
+  buildMessages,
+  buildAnthropicPayload,
+} from "./prompts.js";
 
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -310,33 +317,14 @@ async function fetchAnthropicModels(apiKey) {
 
 // ── LLM streaming ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Bạn là chuyên gia phân tích tri thức cộng đồng.
-
-Nhiệm vụ:
-- Đọc toàn bộ nội dung thread được cung cấp.
-- Hiểu chính xác câu hỏi của người dùng.
-- Chỉ sử dụng thông tin xuất hiện trong thread.
-- Ưu tiên comment có kinh nghiệm thực tế, dữ kiện cụ thể, lập luận rõ ràng.
-
-Bỏ qua: meme, joke, spam, off-topic, cãi nhau vô ích.
-
-Không sử dụng format cố định — hãy chọn cách trình bày phù hợp với loại câu hỏi.
-
-Mục tiêu: Trả lời đúng câu hỏi của người dùng thay vì tóm tắt thread.`;
-
-function buildContext(posts, maxPosts = 400) {
-  return posts
-    .slice(0, maxPosts)
-    .map((p) => `[${p.author_username}]: ${p.content_text}`)
-    .join("\n");
-}
 
 // Stream tokens back via chrome.runtime.sendMessage to the popup
 async function callLLMStream({ provider, model, apiKey, baseUrl, context, question, postCount, tabId }) {
-  const userContent =
-    `Tổng số bài viết: ${postCount}\n\n` +
-    `### NỘI DUNG THREAD\n${context}\n\n` +
-    `---\n### CÂU HỎI CỦA NGƯỜI DÙNG\n${question}`;
+  const userContent = buildUserPrompt({
+    question,
+    context,
+    postCount,
+  });
 
   let url, headers, body;
 
@@ -350,9 +338,12 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
     body = JSON.stringify({
       model,
       max_tokens: 2048,
-      stream:     true,
-      system:     SYSTEM_PROMPT,
-      messages:   [{ role: "user", content: userContent }],
+      stream: true,
+      ...buildAnthropicPayload({
+        question,
+        context,
+        postCount,
+      }),
     });
   } else {
     url     = baseUrl || "https://api.openai.com/v1/chat/completions";
@@ -362,12 +353,12 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
     };
     body = JSON.stringify({
       model,
-      max_tokens: 2048,
-      stream:     true,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user",   content: userContent },
-      ],
+      stream: true,
+      messages: buildMessages({
+        question,
+        context,
+        postCount,
+      }),
     });
   }
 
