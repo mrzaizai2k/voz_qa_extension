@@ -3,133 +3,81 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <title>VOZ Q&A</title>
-
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
 
-<h1>
-  🔍 VOZ Q&A
-  <span class="badge">AI</span>
-</h1>
-
-<div class="provider-row">
-  <button class="provider-btn active" data-provider="openai">
-    OpenAI
-  </button>
-
-  <button class="provider-btn" data-provider="anthropic">
-    Anthropic
-  </button>
-</div>
-
-<div class="section">
-  <label>API Key</label>
-
-  <div class="row">
-    <input
-      type="password"
-      id="apiKey"
-      placeholder="sk-..."
-    />
-
-    <button
-      class="btn-secondary btn-sm"
-      id="btnSaveKey"
-    >
-      Save
-    </button>
+<div class="title-row">
+  <h1>🔍 VOZ Q&A <span class="badge">AI</span></h1>
+  <div class="title-actions">
+    <!-- expand/collapse size -->
+    <button class="btn-icon" id="btnExpand"       title="Expand">⛶</button>
+    <button class="btn-icon" id="btnCollapse"     title="Collapse" style="display:none">⛶</button>
+    <!-- collapse config -->
+    <button class="btn-icon" id="btnToggleConfig" title="Toggle settings">⚙︎</button>
   </div>
 </div>
 
-<div class="section">
-  <label>Model</label>
+<!-- ── Collapsible config section ── -->
+<div id="configSection">
 
-  <div class="model-row">
-    <select id="modelSelect">
-      <option value="">
-        — enter API key first —
-      </option>
-    </select>
-
-    <div id="modelSpinner"></div>
-
-    <button
-      class="btn-secondary btn-sm"
-      id="btnRefreshModels"
-      title="Refresh model list"
-    >
-      ↺
-    </button>
+  <!-- Provider toggle -->
+  <div class="provider-row">
+    <button class="provider-btn active" data-provider="openai">OpenAI</button>
+    <button class="provider-btn"        data-provider="anthropic">Anthropic</button>
   </div>
+
+  <!-- API Key -->
+  <div class="section">
+    <label>API Key</label>
+    <div class="row">
+      <input type="password" id="apiKey" placeholder="sk-..." />
+      <button class="btn-secondary btn-sm" id="btnSaveKey">Save</button>
+    </div>
+  </div>
+
+  <!-- Model — searchable via datalist -->
+  <div class="section">
+    <label>Model</label>
+    <div class="model-row">
+      <input type="search" id="modelInput" list="modelList" placeholder="— enter API key first —" autocomplete="off" />
+      <datalist id="modelList"></datalist>
+      <div id="modelSpinner"></div>
+      <button class="btn-secondary btn-sm" id="btnRefreshModels" title="Refresh model list">↺</button>
+    </div>
+  </div>
+
+  <hr />
 </div>
+<!-- /configSection -->
 
-<hr />
-
+<!-- Status / cache -->
 <div id="statusBar"></div>
-
 <div id="cacheInfo">
   <div class="cache-row">
     <strong id="cacheTitle">—</strong>
-
-    <button
-      class="btn-danger btn-sm"
-      id="btnClearCache"
-    >
-      Clear
-    </button>
+    <button class="btn-danger btn-sm" id="btnClearCache">Clear</button>
   </div>
-
-  <div
-    class="cache-meta"
-    id="cacheMeta"
-  ></div>
+  <div class="cache-meta" id="cacheMeta"></div>
 </div>
 
-<div class="section">
-  <button
-    class="btn-primary"
-    id="btnCrawl"
-    style="width:100%"
-  >
-    ⚡ Crawl thread
-  </button>
-</div>
-
+<!-- Question -->
 <div class="section">
   <label>Your question</label>
-
-  <textarea
-    id="question"
-    placeholder="Hỏi gì về thread này..."
-    disabled
-  ></textarea>
+  <textarea id="question" placeholder="Hỏi gì về thread này..." disabled></textarea>
 </div>
-
 <div class="section">
-  <button
-    class="btn-primary"
-    id="btnAsk"
-    style="width:100%"
-    disabled
-  >
-    Ask AI
-  </button>
+  <button class="btn-primary" id="btnAsk" style="width:100%" disabled>Ask AI</button>
 </div>
 
+<!-- Answer -->
 <div id="answerWrap">
   <hr />
-
-  <label style="margin-bottom:8px">
-    Answer
-  </label>
-
+  <label style="margin-bottom:8px">Answer</label>
   <div id="answerBox"></div>
 </div>
 
 <script src="popup.js"></script>
-
 </body>
 </html>
