@@ -7,14 +7,20 @@ import {
   buildAnthropicPayload,
 } from "./prompts.js";
 
+import {
+  cacheGet,
+  cacheSave,
+  cacheClear,
+  cacheClearAll,
+  cacheInfo,
+  cacheListAll,
+} from "./cache.js";
+
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
   "Referer": "https://voz.vn/",
 };
-
-// In-memory store: threadId -> { title, url, posts, crawledAt }
-const threadCache = {};
 
 // ── Tiny HTML helpers ──────────────────────────────────────────────────────
 
@@ -88,26 +94,22 @@ function parseTitle(html) {
 }
 
 function parseTotalPages(html) {
-  // Strategy 1: pageNav-page links
   const pageNumRe = /pageNav-page[^>]*>[\s\S]*?<a[^>]+>(\d+)<\/a>/gi;
   const nums = [];
   let m;
   while ((m = pageNumRe.exec(html)) !== null) nums.push(parseInt(m[1], 10));
   if (nums.length) return Math.max(...nums);
 
-  // Strategy 2: href containing /page-N
   const hrefRe = /href="[^"]*\/page-(\d+)[^"]*"/gi;
   const hrefNums = [];
   while ((m = hrefRe.exec(html)) !== null) hrefNums.push(parseInt(m[1], 10));
   if (hrefNums.length) return Math.max(...hrefNums);
 
-  // Strategy 3: data-last or data-page attributes
   const dataRe = /data-last="(\d+)"|data-page="(\d+)"/gi;
   const dataNums = [];
   while ((m = dataRe.exec(html)) !== null) dataNums.push(parseInt(m[1] || m[2], 10));
   if (dataNums.length) return Math.max(...dataNums);
 
-  // Strategy 4: "Trang X / Y" or "Page X of Y"
   const ofRe = /(?:trang|page)\s+\d+\s*(?:\/|of)\s*(\d+)/gi;
   while ((m = ofRe.exec(html)) !== null) return parseInt(m[1], 10);
 
@@ -194,7 +196,6 @@ async function fetchPageWithIndex(baseUrl, pageNum) {
 
 async function crawlPagesInBatches(baseUrl, totalPages, batchSize = 5, sendProgress = null) {
   const allPosts = [];
-  // Pages 2..totalPages (page 1 already fetched)
   const pageNums = [];
   for (let p = 2; p <= totalPages; p++) pageNums.push(p);
 
@@ -202,7 +203,6 @@ async function crawlPagesInBatches(baseUrl, totalPages, batchSize = 5, sendProgr
     const batch   = pageNums.slice(i, i + batchSize);
     const results = await Promise.all(batch.map((p) => fetchPageWithIndex(baseUrl, p)));
 
-    // Sort results by page number to preserve post order
     results.sort((a, b) => a.pageNum - b.pageNum);
 
     for (const { pageNum, html } of results) {
@@ -216,7 +216,6 @@ async function crawlPagesInBatches(baseUrl, totalPages, batchSize = 5, sendProgr
       }
     }
 
-    // Small delay between batches to avoid rate limiting
     if (i + batchSize < pageNums.length) {
       await new Promise((r) => setTimeout(r, 300));
     }
@@ -249,7 +248,7 @@ async function crawlThread(threadUrl, sendProgress) {
     : [];
 
   const allPosts = [...page1Posts, ...remainingPosts];
-
+  
   const data = {
     thread_id:   threadId,
     title,
@@ -260,7 +259,9 @@ async function crawlThread(threadUrl, sendProgress) {
     posts:       allPosts,
   };
 
-  threadCache[threadId] = data;
+  // Persist to RAM + IndexedDB
+  await cacheSave(data);
+
   console.log("[VOZ-QA] Crawl complete. Total posts:", allPosts.length);
   return data;
 }
@@ -317,15 +318,7 @@ async function fetchAnthropicModels(apiKey) {
 
 // ── LLM streaming ──────────────────────────────────────────────────────────
 
-
-// Stream tokens back via chrome.runtime.sendMessage to the popup
-async function callLLMStream({ provider, model, apiKey, baseUrl, context, question, postCount, tabId }) {
-  const userContent = buildUserPrompt({
-    question,
-    context,
-    postCount,
-  });
-
+async function callLLMStream({ provider, model, apiKey, baseUrl, context, question, postCount }) {
   let url, headers, body;
 
   if (provider === "anthropic") {
@@ -339,11 +332,7 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
       model,
       max_tokens: 2048,
       stream: true,
-      ...buildAnthropicPayload({
-        question,
-        context,
-        postCount,
-      }),
+      ...buildAnthropicPayload({ question, context, postCount }),
     });
   } else {
     url     = baseUrl || "https://api.openai.com/v1/chat/completions";
@@ -354,11 +343,7 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
     body = JSON.stringify({
       model,
       stream: true,
-      messages: buildMessages({
-        question,
-        context,
-        postCount,
-      }),
+      messages: buildMessages({ question, context, postCount }),
     });
   }
 
@@ -372,15 +357,9 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
   const decoder = new TextDecoder();
   let   buffer  = "";
 
-  function sendChunk(token) {
-    chrome.runtime.sendMessage({ type: "LLM_STREAM_CHUNK", token });
-  }
-  function sendDone() {
-    chrome.runtime.sendMessage({ type: "LLM_STREAM_DONE" });
-  }
-  function sendError(msg) {
-    chrome.runtime.sendMessage({ type: "LLM_STREAM_ERROR", error: msg });
-  }
+  const sendChunk = (token) => chrome.runtime.sendMessage({ type: "LLM_STREAM_CHUNK", token });
+  const sendDone  = ()      => chrome.runtime.sendMessage({ type: "LLM_STREAM_DONE" });
+  const sendError = (msg)   => chrome.runtime.sendMessage({ type: "LLM_STREAM_ERROR", error: msg });
 
   try {
     while (true) {
@@ -389,7 +368,7 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -398,13 +377,10 @@ async function callLLMStream({ provider, model, apiKey, baseUrl, context, questi
 
         try {
           const json = JSON.parse(trimmed.slice(6));
-
           if (provider === "anthropic") {
-            // Anthropic SSE: event types content_block_delta
             const delta = json.delta?.text;
             if (delta) sendChunk(delta);
           } else {
-            // OpenAI SSE
             const delta = json.choices?.[0]?.delta?.content;
             if (delta) sendChunk(delta);
           }
@@ -429,19 +405,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const { url } = msg;
     const threadId = extractThreadId(url);
 
-    if (threadCache[threadId]) {
-      console.log("[VOZ-QA] Returning cached data for", threadId);
-      sendResponse({ ok: true, cached: true, data: threadCache[threadId] });
-      return true;
-    }
+    // Check hybrid cache (RAM first, then IndexedDB)
+    cacheGet(threadId).then((cached) => {
+      if (cached) {
+        console.log("[VOZ-QA] Returning cached data for", threadId);
+        sendResponse({ ok: true, cached: true, data: cached });
+        return;
+      }
 
-    crawlThread(url, (progress) => {
-      console.log("[VOZ-QA] Progress:", progress);
-      // Forward progress to popup
-      chrome.runtime.sendMessage({ type: "CRAWL_PROGRESS", ...progress }).catch(() => {});
-    })
-      .then((data) => sendResponse({ ok: true, cached: false, data }))
-      .catch((e)  => sendResponse({ ok: false, error: e.message }));
+      crawlThread(url, (progress) => {
+        console.log("[VOZ-QA] Progress:", progress);
+        chrome.runtime.sendMessage({ type: "CRAWL_PROGRESS", ...progress }).catch(() => {});
+      })
+        .then((data) => sendResponse({ ok: true, cached: false, data }))
+        .catch((e)   => sendResponse({ ok: false, error: e.message }));
+    });
 
     return true;
   }
@@ -449,23 +427,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   // ── Ask (streaming) ──
   if (msg.type === "ASK_QUESTION") {
     const { threadId, question, provider, model, apiKey, baseUrl } = msg;
-    const cached = threadCache[threadId];
-    if (!cached) {
-      sendResponse({ ok: false, error: "Thread not crawled yet." });
-      return true;
-    }
 
-    const context = buildContext(cached.posts);
-    // Acknowledge immediately; actual tokens arrive via sendMessage
-    sendResponse({ ok: true, streaming: true });
+    cacheGet(threadId).then((cached) => {
+      if (!cached) {
+        sendResponse({ ok: false, error: "Thread not crawled yet." });
+        return;
+      }
 
-    callLLMStream({
-      provider, model, apiKey, baseUrl,
-      context, question,
-      postCount: cached.post_count,
-    }).catch((e) => {
-      console.error("[VOZ-QA] LLM stream error:", e);
-      chrome.runtime.sendMessage({ type: "LLM_STREAM_ERROR", error: e.message }).catch(() => {});
+      const context = buildContext(cached.posts);
+      sendResponse({ ok: true, streaming: true });
+
+      callLLMStream({
+        provider, model, apiKey, baseUrl,
+        context, question,
+        postCount: cached.post_count,
+      }).catch((e) => {
+        console.error("[VOZ-QA] LLM stream error:", e);
+        chrome.runtime.sendMessage({ type: "LLM_STREAM_ERROR", error: e.message }).catch(() => {});
+      });
     });
 
     return true;
@@ -483,18 +462,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   // ── Cache helpers ──
   if (msg.type === "GET_CACHE_INFO") {
-    const cached = threadCache[msg.threadId];
-    if (cached) {
-      sendResponse({ ok: true, cached: true, title: cached.title, post_count: cached.post_count, crawled_at: cached.crawled_at });
-    } else {
-      sendResponse({ ok: true, cached: false });
-    }
+    cacheInfo(msg.threadId)
+      .then((info) => sendResponse({ ok: true, ...info }))
+      .catch((e)   => sendResponse({ ok: false, error: e.message }));
     return true;
   }
 
   if (msg.type === "CLEAR_CACHE") {
-    if (msg.threadId && threadCache[msg.threadId]) delete threadCache[msg.threadId];
-    sendResponse({ ok: true });
+    const action = msg.threadId ? cacheClear(msg.threadId) : cacheClearAll();
+    action
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+
+  // ── List all cached threads (new — useful for popup UI) ──
+  if (msg.type === "LIST_CACHED_THREADS") {
+    cacheListAll()
+      .then((threads) => sendResponse({ ok: true, threads }))
+      .catch((e)      => sendResponse({ ok: false, error: e.message }));
     return true;
   }
 });

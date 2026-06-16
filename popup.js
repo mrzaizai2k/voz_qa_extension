@@ -137,28 +137,31 @@ async function fetchAndPopulateModels(provider, apiKey, forceRefresh = false) {
 
 function persistAnswer(threadId, text) {
   if (!threadId) return;
-  chrome.storage.session.set({ [`voz_answer_${threadId}`]: text });
+  chrome.storage.local.set({ [`voz_answer_${threadId}`]: text });
 }
 
 async function restoreAnswer(threadId) {
-  if (!threadId) return;
+  if (!threadId) return "";
   return new Promise((res) =>
-    chrome.storage.session.get(`voz_answer_${threadId}`, (d) => res(d[`voz_answer_${threadId}`] || ""))
+    chrome.storage.local.get(`voz_answer_${threadId}`, (d) => 
+      res(d[`voz_answer_${threadId}`] || "")
+    )
   );
 }
 
 function persistQuestion(threadId, text) {
   if (!threadId) return;
-  chrome.storage.session.set({ [`voz_question_${threadId}`]: text });
+  chrome.storage.local.set({ [`voz_question_${threadId}`]: text });
 }
 
 async function restoreQuestion(threadId) {
   if (!threadId) return "";
   return new Promise((res) =>
-    chrome.storage.session.get(`voz_question_${threadId}`, (d) => res(d[`voz_question_${threadId}`] || ""))
+    chrome.storage.local.get(`voz_question_${threadId}`, (d) => 
+      res(d[`voz_question_${threadId}`] || "")
+    )
   );
 }
-
 // ── Cache UI ───────────────────────────────────────────────────────────────
 
 async function refreshCacheInfo(threadId) {
@@ -375,11 +378,13 @@ btnAsk.addEventListener("click", async () => {
 btnClearCache.addEventListener("click", async () => {
   if (!currentThreadId) return;
   await chrome.runtime.sendMessage({ type: "CLEAR_CACHE", threadId: currentThreadId });
-  // Also clear persisted answer/question for this thread
-  chrome.storage.session.remove([
+  
+  // ← Change session → local here
+  chrome.storage.local.remove([
     `voz_answer_${currentThreadId}`,
     `voz_question_${currentThreadId}`,
   ]);
+  
   cacheInfo.style.display  = "none";
   answerWrap.style.display = "none";
   answerBox.innerHTML      = "";
@@ -387,11 +392,19 @@ btnClearCache.addEventListener("click", async () => {
   autoResizeQuestion();
   clearStatus();
 });
-
 // ── Init ───────────────────────────────────────────────────────────────────
 
 async function init() {
-  // Current tab URL
+  // ── 1. Restore provider FIRST ──────────────────────────────────────────
+  const savedProvider = await new Promise((res) =>
+    chrome.storage.local.get("voz_provider", (d) => res(d.voz_provider || "openai"))
+  );
+  currentProvider = savedProvider;
+  document.querySelectorAll(".provider-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.provider === currentProvider);
+  });
+
+  // ── 2. Current tab URL ─────────────────────────────────────────────────
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url   = tab?.url || "";
 
@@ -402,7 +415,7 @@ async function init() {
     setStatus("⚠️ Open a voz.vn thread first.", "warn");
   }
 
-  // Extract thread ID
+  // ── 3. Extract thread ID & restore chat ────────────────────────────────
   const m = url.match(/\.(\d+)\/?/);
   if (m) {
     currentThreadId = m[1];
@@ -422,19 +435,12 @@ async function init() {
     if (savedA) {
       answerWrap.style.display = "block";
       answerBox.textContent    = savedA;
+      // Scroll to bottom of answer
+      answerBox.scrollTop = answerBox.scrollHeight;
     }
   }
 
-  // Restore provider
-  const savedProvider = await new Promise((res) =>
-    chrome.storage.local.get("voz_provider", (d) => res(d.voz_provider || "openai"))
-  );
-  currentProvider = savedProvider;
-  document.querySelectorAll(".provider-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.provider === currentProvider);
-  });
-
-  // Restore expanded state
+  // ── 4. Restore UI states ───────────────────────────────────────────────
   const { voz_expanded } = await new Promise((res) =>
     chrome.storage.session.get("voz_expanded", res)
   );
@@ -444,7 +450,6 @@ async function init() {
     btnCollapse.style.display = "inline-block";
   }
 
-  // Restore config collapsed state
   const { voz_config_collapsed } = await new Promise((res) =>
     chrome.storage.session.get("voz_config_collapsed", res)
   );
@@ -453,18 +458,18 @@ async function init() {
     btnToggleConfig.title = "Show settings";
   }
 
-  // Load API key + models
+  // ── 5. Load API key + models ───────────────────────────────────────────
   const key = await loadApiKey(currentProvider);
   apiKeyInput.value = key;
   await fetchAndPopulateModels(currentProvider, key);
 
-  // Enable question/ask if on a voz thread (auto-crawl handles the rest)
+  // ── 6. Enable inputs if on voz thread ─────────────────────────────────
   if (/voz\.vn\/t\//.test(url)) {
     questionEl.disabled = false;
     btnAsk.disabled     = false;
   }
-  autoResizeQuestion();
 
+  autoResizeQuestion();
 }
 
 init();
