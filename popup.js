@@ -5,6 +5,7 @@ let currentProvider = "openai";
 let currentThreadId = null;
 let currentUrl      = null;
 let isStreaming     = false;
+let markdownBuffer = "";
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const apiKeyInput      = document.getElementById("apiKey");
@@ -278,19 +279,19 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 
   if (msg.type === "LLM_STREAM_CHUNK") {
-    const cursor = answerBox.querySelector(".cursor");
-    if (cursor) cursor.remove();
-    answerBox.appendChild(document.createTextNode(msg.token));
-    const cur = document.createElement("span");
-    cur.className = "cursor";
-    answerBox.appendChild(cur);
+    markdownBuffer += msg.token;
+
+    answerBox.innerHTML =
+      marked.parse(markdownBuffer) +
+      '<span class="cursor"></span>';
+
     answerBox.scrollTop = answerBox.scrollHeight;
 
-    // Persist incrementally (debounced via timeout)
     clearTimeout(answerBox._persistTimer);
     answerBox._persistTimer = setTimeout(() => {
-      persistAnswer(currentThreadId, answerBox.textContent.replace(/\u00a0/g, "").trimEnd());
+      persistAnswer(currentThreadId, markdownBuffer);
     }, 400);
+
     return;
   }
 
@@ -298,7 +299,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     const cursor = answerBox.querySelector(".cursor");
     if (cursor) cursor.remove();
     // Final persist
-    persistAnswer(currentThreadId, answerBox.textContent.trimEnd());
+    persistAnswer(currentThreadId, markdownBuffer);
     isStreaming        = false;
     btnAsk.disabled    = false;
     btnAsk.textContent = "Ask AI";
@@ -337,7 +338,8 @@ btnAsk.addEventListener("click", async () => {
   clearStatus();
 
   // Clear previous answer
-  answerBox.innerHTML      = "";
+  markdownBuffer = "";
+  answerBox.innerHTML = "";
   answerWrap.style.display = "block";
 
   // Persist question
@@ -433,8 +435,9 @@ async function init() {
     // Restore persisted answer
     const savedA = await restoreAnswer(currentThreadId);
     if (savedA) {
+      markdownBuffer = savedA;
       answerWrap.style.display = "block";
-      answerBox.textContent    = savedA;
+      answerBox.innerHTML = marked.parse(savedA);
       // Scroll to bottom of answer
       answerBox.scrollTop = answerBox.scrollHeight;
     }
